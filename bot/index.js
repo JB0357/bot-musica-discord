@@ -11,7 +11,13 @@ const client = new Client({
 });
 
 const kazagumo = new Kazagumo(
-  { defaultSearchEngine: "youtube" },
+  {
+    defaultSearchEngine: "youtube",
+    send: (guildId, payload) => {
+      const guild = client.guilds.cache.get(guildId);
+      if (guild) guild.shard.send(payload);
+    },
+  },
   new Connectors.DiscordJS(client),
   [
     {
@@ -27,7 +33,7 @@ kazagumo.shoukaku.on("error", (name, error) => console.error(`[Lavalink] Error e
 kazagumo.shoukaku.on("disconnect", (name, reason) => console.log(`[Lavalink] Disconnect nodo ${name}:`, reason));
 kazagumo.shoukaku.on("reconnecting", (name) => console.log(`[Lavalink] Reconnecting nodo ${name}...`));
 
-client.once("ready", () => console.log(`Bot conectado como ${client.user.tag}`));
+client.once("clientReady", () => console.log(`Bot conectado como ${client.user.tag}`));
 
 // ----------------- helper: esperar player -----------------
 async function waitForPlayer(guildId, timeout = 6000) {
@@ -142,21 +148,38 @@ client.on("interactionCreate", async (interaction) => {
 
       let player = kazagumo.players.get(guildId);
       if (!player) {
-        kazagumo.createPlayer({
-          guildId,
-          voiceId,
-          textId: interaction.channelId,
-          deaf: true,
+      try {
+   	 console.log("Creando player...", {
+     	 guildId,
+     	 voiceId,
+      	textId: interaction.channelId
+    	});
+
+        player = await kazagumo.createPlayer({
+     	 guildId,
+     	 voiceId,
+     	 textId: interaction.channelId,
+     	 deaf: true,
+        });
+	
+   	if (!player) {
+     	   player = await waitForPlayer(guildId, 15000);
+    	}
+
+        console.log("Player resultado:", {
+          existe: !!player,
+          guildId: player?.guildId,
+          voiceId: player?.voiceId
         });
 
-        player = await waitForPlayer(guildId);
-        if (!player) return interaction.editReply("No se pudo inicializar el reproductor de audio.");
-      } else {
-        if (player.textId !== interaction.channelId) player.textId = interaction.channelId;
-        if (player.voiceId && player.voiceId !== voiceId && typeof player.setVoiceChannel === "function") {
-          player.setVoiceChannel(voiceId);
-        }
-      }
+    if (!player) {
+      return interaction.editReply("No se pudo inicializar el reproductor de audio.");
+    }
+  } catch (e) {
+    console.error("Error creando player:", e);
+    return interaction.editReply(`No se pudo crear el reproductor: ${e.message}`);
+  }
+}
 
       const result = await kazagumo.search(query, { requester: interaction.user });
       if (!result?.tracks?.length) return interaction.editReply("No encontré resultados para esa búsqueda.");
